@@ -58,7 +58,7 @@ namespace Alluvial.For.ItsDomainSql.Tests
 
             var distributor = partitionsByAggregateId.CreateSqlBrokeredDistributor(
                 new SqlBrokeredDistributorDatabase(CommandSchedulerConnectionString),
-                commandsDue.Id, 
+                commandsDue.Id,
                 waitInterval: TimeSpan.FromSeconds(.5));
 
             var catchup = commandsDue
@@ -124,7 +124,43 @@ namespace Alluvial.For.ItsDomainSql.Tests
             }
         }
 
-        private static async Task<IEnumerable<IScheduledCommand<AggregateA>>> ScheduleSomeCommands(
+        [Test]
+        public async Task repro_of_some_commands_not_being_delivered_sucesfully()
+        {
+            // arrange
+            await ScheduleSomeCommands(5);
+
+            var commandsDue = CommandScheduler.CommandsDueOnClock(clockName);
+
+            var distributor = partitionsByAggregateId.CreateSqlBrokeredDistributor(
+                new SqlBrokeredDistributorDatabase(CommandSchedulerConnectionString),
+                commandsDue.Id,
+                waitInterval: TimeSpan.FromSeconds(.5));
+
+            var catchup = commandsDue
+                .CreateDistributedCatchup(distributor);
+
+            var store = new InMemoryProjectionStore<CommandsApplied>();
+
+            catchup.Subscribe(CommandScheduler.DeliverScheduledCommands().Trace(), store);
+
+            // act
+            await catchup.RunSingleBatch().Timeout();
+
+            // assert
+            store.Sum(c => c.Value.Count).Should().Be(5);
+
+            using (var db = Configuration.Current.CommandSchedulerDbContext())
+            {
+                var remainingCommandsDue = await db.ScheduledCommands
+                                                   .Where(c => c.Clock.Name == clockName)
+                                                   .Due()
+                                                   .CountAsync();
+                remainingCommandsDue.Should().Be(0);
+            }
+        }
+
+        private static async Task<IEnumerable<IScheduledCommand<NotAnAggreateTarget>>> ScheduleSomeCommands(
             int howMany = 20,
             DateTimeOffset? dueTime = null,
             Func<string> clockName = null)
@@ -134,15 +170,14 @@ namespace Alluvial.For.ItsDomainSql.Tests
                 Configuration.Current.UseDependency<GetClockName>(c => _ => clockName());
             }
 
-            var commandsScheduled = new List<IScheduledCommand<AggregateA>>();
+            var commandsScheduled = new List<IScheduledCommand<NotAnAggreateTarget>>();
 
             foreach (var id in Enumerable.Range(1, howMany).Select(_ => Guid.NewGuid()))
             {
-                var scheduler = Configuration.Current.CommandScheduler<AggregateA>();
+                var scheduler = Configuration.Current.CommandScheduler<NotAnAggreateTarget>();
                 var command = await scheduler.Schedule(id,
-                                                       new CreateAggregateA
+                                                       new DoSomething()
                                                        {
-                                                           AggregateId = id
                                                        },
                                                        dueTime);
                 commandsScheduled.Add(command);

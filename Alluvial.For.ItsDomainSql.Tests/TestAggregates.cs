@@ -79,21 +79,9 @@ namespace Alluvial.For.ItsDomainSql.Tests
             return true;
         }
 
-        public bool CanBeDeliveredDuringScheduling
-        {
-            get
-            {
-                return false;
-            }
-        }
+        public bool CanBeDeliveredDuringScheduling => false;
 
-        public bool RequiresDurableScheduling
-        {
-            get
-            {
-                return true;
-            }
-        }
+        public bool RequiresDurableScheduling => true;
     }
 
     public class AggregateB : EventSourcedAggregate<AggregateB>
@@ -145,5 +133,23 @@ namespace Alluvial.For.ItsDomainSql.Tests
         {
             return true;
         }
+    }
+
+    public class NotAnAggreateTarget
+    {
+
+    }
+
+    public class DoSomething : Command<NotAnAggreateTarget>,
+                               ISpecifySchedulingBehavior
+    {
+        public override bool Authorize(NotAnAggreateTarget aggregate)
+        {
+            return true;
+        }
+
+        public bool CanBeDeliveredDuringScheduling => false;
+
+        public bool RequiresDurableScheduling => true;
     }
 }
